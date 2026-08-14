@@ -4,6 +4,11 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
 <title>🥔 Potato Cam</title>
+<link rel="manifest" href="manifest.json">
+<link rel="icon" href="icon-192.png">
+<link rel="apple-touch-icon" href="icon-192.png">
+<meta name="theme-color" content="#0d0b08">
+<meta name="permissions-policy" content="camera=(self)">
 <style>
   * { box-sizing: border-box; -webkit-tap-highlight-color: transparent; }
   html, body {
@@ -111,13 +116,13 @@
   <div id="controls">
     <div class="row">
       <label>Potato-ness</label>
-      <input id="potato" type="range" min="1" max="10" value="6">
-      <div class="val" id="potatoVal">6</div>
+      <input id="potato" type="range" min="1" max="10" value="3">
+      <div class="val" id="potatoVal">3</div>
     </div>
     <div class="row">
       <label>Grime / Noise</label>
-      <input id="noise" type="range" min="0" max="10" value="5">
-      <div class="val" id="noiseVal">5</div>
+      <input id="noise" type="range" min="0" max="10" value="2">
+      <div class="val" id="noiseVal">2</div>
     </div>
     <div id="btnRow">
       <button class="iconBtn" id="flipBtn" title="Switch camera">🔄</button>
@@ -188,10 +193,10 @@
     const p = potatoAmt / 10; // 0..1
     const n = noiseAmt / 10;
 
-    // pixelation factor: at potato=1 ~ mild blocks, at 10 ~ very chunky
-    const blockDivisor = Math.max(2, Math.round(4 + p * 40)); // 4..44
-    const smallW = Math.max(4, Math.floor(outW / blockDivisor));
-    const smallH = Math.max(4, Math.floor(outH / blockDivisor));
+    // pixelation factor: at potato=1 ~ barely there, at 10 ~ chunky but still readable
+    const blockDivisor = Math.max(1.4, 1 + p * 18); // ~2..19
+    const smallW = Math.max(6, Math.floor(outW / blockDivisor));
+    const smallH = Math.max(6, Math.floor(outH / blockDivisor));
 
     const small = offscreen(smallW, smallH);
     const sctx = small.getContext('2d');
@@ -205,7 +210,7 @@
     // pixel-level mangling
     const imgData = outCtx.getImageData(0, 0, outW, outH);
     const d = imgData.data;
-    const levels = Math.max(2, Math.round(10 - p * 7)); // fewer levels = more banding
+    const levels = Math.max(4, Math.round(14 - p * 8)); // fewer levels = more banding, floor raised
     const step = 255 / (levels - 1);
 
     for (let i = 0; i < d.length; i += 4) {
@@ -216,15 +221,15 @@
       g = Math.round(Math.round(g / step) * step);
       b = Math.round(Math.round(b / step) * step);
 
-      // crushed contrast + sickly yellow-green white balance
-      const contrast = 1 + p * 0.5;
-      r = (r - 128) * contrast + 128 - p * 12;
-      g = (g - 128) * contrast + 128 + p * 10;
-      b = (b - 128) * contrast + 128 - p * 22;
+      // mild crushed contrast + slight warm/greenish white balance
+      const contrast = 1 + p * 0.25;
+      r = (r - 128) * contrast + 128 - p * 6;
+      g = (g - 128) * contrast + 128 + p * 5;
+      b = (b - 128) * contrast + 128 - p * 10;
 
       // grime noise
       if (n > 0) {
-        const grain = (Math.random() - 0.5) * n * 90;
+        const grain = (Math.random() - 0.5) * n * 45;
         r += grain; g += grain; b += grain;
       }
 
@@ -240,7 +245,7 @@
       outW / 2, outH / 2, outH * 0.75
     );
     grad.addColorStop(0, 'rgba(0,0,0,0)');
-    grad.addColorStop(1, `rgba(0,0,0,${0.25 + p * 0.35})`);
+    grad.addColorStop(1, `rgba(0,0,0,${0.12 + p * 0.22})`);
     outCtx.fillStyle = grad;
     outCtx.fillRect(0, 0, outW, outH);
 
@@ -322,11 +327,11 @@
     const sctx2 = shotCanvas.getContext('2d');
     sctx2.drawImage(view, 0, 0);
 
-    // extra final degradation: multiple lossy JPEG passes at low quality
-    await reJpegMangle(shotCanvas, 0.15);
-    await reJpegMangle(shotCanvas, 0.25);
+    // extra final degradation: a couple of lossy JPEG passes, kept mild
+    await reJpegMangle(shotCanvas, 0.35);
+    await reJpegMangle(shotCanvas, 0.45);
 
-    const blob = await new Promise(res => shotCanvas.toBlob(res, 'image/jpeg', 0.6));
+    const blob = await new Promise(res => shotCanvas.toBlob(res, 'image/jpeg', 0.75));
     const url = URL.createObjectURL(blob);
     shots.unshift({ url, blob });
     openGallery(0);
@@ -358,14 +363,37 @@
   galBtn.onclick = () => openGallery(shots.length ? 0 : -1);
   galClose.onclick = () => gallery.classList.remove('open');
 
-  galSave.onclick = () => {
+  galSave.onclick = async () => {
     const s = shots[galIndex];
-    const a = document.createElement('a');
-    a.href = s.url;
-    a.download = `potato-cam-${Date.now()}.jpg`;
-    document.body.appendChild(a);
-    a.click();
-    a.remove();
+    const filename = `potato-cam-${Date.now()}.jpg`;
+    const file = new File([s.blob], filename, { type: 'image/jpeg' });
+
+    // Preferred path on Android: native share sheet has a direct "Save image" / "Save to Photos" action.
+    if (navigator.canShare && navigator.canShare({ files: [file] })) {
+      try {
+        await navigator.share({ files: [file], title: 'Potato Cam photo' });
+        return;
+      } catch (err) {
+        if (err && err.name === 'AbortError') return; // user cancelled the share sheet, not an error
+        console.warn('share failed, falling back', err);
+      }
+    }
+
+    // Fallback: force a real download via a temporary object URL (more reliable than reusing the display url).
+    try {
+      const dlUrl = URL.createObjectURL(file);
+      const a = document.createElement('a');
+      a.href = dlUrl;
+      a.download = filename;
+      document.body.appendChild(a);
+      a.click();
+      a.remove();
+      setTimeout(() => URL.revokeObjectURL(dlUrl), 4000);
+    } catch (err) {
+      // Last resort: open the image in a new tab so the user can long-press → save.
+      window.open(s.url, '_blank');
+      alert('Long-press the photo and choose "Download image" to save it.');
+    }
   };
 
   galDel.onclick = () => {
