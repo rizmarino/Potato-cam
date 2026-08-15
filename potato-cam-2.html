@@ -87,6 +87,22 @@
     display: flex; flex-direction: column; gap: 10px; z-index: 5;
     flex-shrink: 0;
   }
+  #typeRow {
+    display: flex; gap: 8px; overflow-x: auto; padding-bottom: 2px;
+    scrollbar-width: none; -webkit-overflow-scrolling: touch;
+  }
+  #typeRow::-webkit-scrollbar { display: none; }
+  .typeChip {
+    flex-shrink: 0; display: flex; flex-direction: column; align-items: center; gap: 2px;
+    background: #1c1710; border: 1px solid #3a2f1e; color: #cbb98a;
+    padding: 7px 12px; border-radius: 14px; font-size: 18px; min-width: 58px;
+  }
+  .typeChip span { font-size: 10px; font-weight: 600; color: inherit; }
+  .typeChip.active {
+    background: #3a2b0d; border-color: #ffd873; color: #ffd873;
+    box-shadow: 0 0 0 1px #ffd87355;
+  }
+
   .row { display: flex; align-items: center; gap: 10px; }
   .row label { font-size: 12px; width: 78px; color: #cbb98a; flex-shrink: 0; }
   input[type=range] {
@@ -151,6 +167,14 @@
   </div>
 
   <div id="controls">
+    <div id="typeRow">
+      <button class="typeChip active" data-type="russet">🥔<span>Russet</span></button>
+      <button class="typeChip" data-type="sweet">🍠<span>Sweet</span></button>
+      <button class="typeChip" data-type="purple">🍆<span>Purple</span></button>
+      <button class="typeChip" data-type="red">🔴<span>Red</span></button>
+      <button class="typeChip" data-type="gold">🟡<span>Gold</span></button>
+      <button class="typeChip" data-type="frozen">🧊<span>Frozen</span></button>
+    </div>
     <div class="row">
       <label>Potato-ness</label>
       <input id="potato" type="range" min="1" max="10" value="3">
@@ -249,6 +273,14 @@ if ('serviceWorker' in navigator) {
   potatoSlider.oninput = () => potatoVal.textContent = potatoSlider.value;
   noiseSlider.oninput = () => noiseVal.textContent = noiseSlider.value;
 
+  document.querySelectorAll('.typeChip').forEach((chip) => {
+    chip.addEventListener('click', () => {
+      currentPotatoType = chip.dataset.type;
+      document.querySelectorAll('.typeChip').forEach((c) => c.classList.remove('active'));
+      chip.classList.add('active');
+    });
+  });
+
   function offscreen(w, h) {
     const c = document.createElement('canvas');
     c.width = w; c.height = h;
@@ -262,7 +294,31 @@ if ('serviceWorker' in navigator) {
   // 4. Add per-pixel noise/grime
   // 5. Vignette
   // 6. On capture only: extra lossy JPEG re-compression pass
-  function potatoFrame(sourceCanvas, outCtx, outW, outH, potatoAmt, noiseAmt, extraJpegMangle) {
+  // Potato variety presets — each is a color grade layered on top of the base
+  // pixelation/posterize/noise pipeline. rShift/gShift/bShift are flat tint
+  // offsets (always applied, independent of the potato-ness slider) and sat
+  // is a saturation multiplier (1 = untouched, >1 = more vivid).
+  const POTATO_TYPES = {
+    russet:  { name: 'Russet',       emoji: '🥔', rShift: -8,  gShift: 4,   bShift: -12, sat: 1.0  },
+    sweet:   { name: 'Sweet Potato', emoji: '🍠', rShift: 42,  gShift: 8,   bShift: -30, sat: 1.25 },
+    purple:  { name: 'Purple',       emoji: '🍆', rShift: 6,   gShift: -18, bShift: 34,  sat: 1.3  },
+    red:     { name: 'Red Potato',   emoji: '🔴', rShift: 34,  gShift: -14, bShift: -8,  sat: 1.2  },
+    gold:    { name: 'Yukon Gold',   emoji: '🟡', rShift: 22,  gShift: 16,  bShift: -18, sat: 1.1  },
+    frozen:  { name: 'Frozen',       emoji: '🧊', rShift: -20, gShift: 0,   bShift: 26,  sat: 0.85 }
+  };
+  let currentPotatoType = 'russet';
+
+  function applySaturation(r, g, b, sat) {
+    if (sat === 1) return [r, g, b];
+    const gray = r * 0.299 + g * 0.587 + b * 0.114;
+    return [
+      gray + (r - gray) * sat,
+      gray + (g - gray) * sat,
+      gray + (b - gray) * sat
+    ];
+  }
+
+  function potatoFrame(sourceCanvas, outCtx, outW, outH, potatoAmt, noiseAmt, extraJpegMangle, typeKey) {
     const p = potatoAmt / 10; // 0..1
     const n = noiseAmt / 10;
 
@@ -286,6 +342,8 @@ if ('serviceWorker' in navigator) {
     const levels = Math.max(4, Math.round(14 - p * 8)); // fewer levels = more banding, floor raised
     const step = 255 / (levels - 1);
 
+    const type = POTATO_TYPES[typeKey] || POTATO_TYPES.russet;
+
     for (let i = 0; i < d.length; i += 4) {
       let r = d[i], g = d[i + 1], b = d[i + 2];
 
@@ -299,6 +357,10 @@ if ('serviceWorker' in navigator) {
       r = (r - 128) * contrast + 128 - p * 6;
       g = (g - 128) * contrast + 128 + p * 5;
       b = (b - 128) * contrast + 128 - p * 10;
+
+      // potato-variety color grade
+      [r, g, b] = applySaturation(r, g, b, type.sat);
+      r += type.rShift; g += type.gShift; b += type.bShift;
 
       // grime noise
       if (n > 0) {
@@ -366,7 +428,7 @@ if ('serviceWorker' in navigator) {
         vctx.drawImage(video, facingMode === 'user' ? view.width - dw - dx : dx, dy, dw, dh);
         vctx.restore();
 
-        potatoFrame(vc, ctx, view.width, view.height, +potatoSlider.value, +noiseSlider.value, false);
+        potatoFrame(vc, ctx, view.width, view.height, +potatoSlider.value, +noiseSlider.value, false, currentPotatoType);
       }
     }
     rafId = requestAnimationFrame(drawLoop);
