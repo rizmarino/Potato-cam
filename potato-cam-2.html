@@ -133,11 +133,12 @@
   .galNavBtn:disabled { opacity: 0.25; }
   #galPrev { left: 8px; }
   #galNext { right: 8px; }
-  #galActions { display: flex; gap: 10px; padding: 14px 16px calc(18px + env(safe-area-inset-bottom, 0px)); }
+  #galActions { display: flex; gap: 8px; padding: 14px 16px calc(18px + env(safe-area-inset-bottom, 0px)); }
   #galActions button {
-    flex: 1; padding: 12px; border-radius: 10px; border: none; font-weight: 700; font-size: 14px;
+    flex: 1; padding: 12px 6px; border-radius: 10px; border: none; font-weight: 700; font-size: 13px;
   }
   #galActions .save { background: #ffd873; color: #3a2b0d; }
+  #galActions .share { background: #2e4a3a; color: #8fe0b4; }
   #galActions .del { background: #3a2417; color: #ff9d7a; }
   #emptyGal { margin: auto; color: #8a7a58; font-size: 13px; text-align: center; padding: 40px; }
 
@@ -234,6 +235,7 @@
   </div>
   <div id="galActions" style="display:none;">
     <button class="save" id="galSave">Save again</button>
+    <button class="share" id="galShare">Share</button>
     <button class="del" id="galDel">Delete</button>
   </div>
 </div>
@@ -271,6 +273,7 @@ if ('serviceWorker' in navigator) {
   const galNext = document.getElementById('galNext');
   const galActions = document.getElementById('galActions');
   const galSave = document.getElementById('galSave');
+  const galShare = document.getElementById('galShare');
   const galDel = document.getElementById('galDel');
   const galCount = document.getElementById('galCount');
 
@@ -669,6 +672,25 @@ if ('serviceWorker' in navigator) {
     autoSave(s.blob, s.filename || `potato-cam-${Date.now()}.jpg`);
     galSave.textContent = 'Saved ✓';
     setTimeout(() => { galSave.textContent = 'Save again'; }, 1200);
+  };
+
+  galShare.onclick = async () => {
+    const s = shots[galIndex];
+    const filename = s.filename || `potato-cam-${Date.now()}.jpg`;
+    const file = new File([s.blob], filename, { type: 'image/jpeg' });
+
+    if (navigator.canShare && navigator.canShare({ files: [file] })) {
+      try {
+        await navigator.share({ files: [file], title: 'Potato Cam photo' });
+      } catch (err) {
+        if (err && err.name !== 'AbortError') { // AbortError = user just cancelled, not a real failure
+          console.warn('share failed', err);
+        }
+      }
+    } else {
+      // Sharing isn't available on this device/build — fall back to a save prompt instead.
+      autoSave(s.blob, filename);
+    }
   };
 
   galDel.onclick = () => {
