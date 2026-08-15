@@ -1,0 +1,440 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
+<title>🥔 Potato Cam</title>
+<link rel="manifest" href="manifest.json">
+<link rel="icon" href="icon-192.png">
+<link rel="apple-touch-icon" href="icon-192.png">
+<meta name="theme-color" content="#0d0b08">
+<meta name="permissions-policy" content="camera=(self)">
+<style>
+  * { box-sizing: border-box; -webkit-tap-highlight-color: transparent; }
+  html, body {
+    margin: 0; padding: 0; height: 100%;
+    background: #0d0b08; color: #f1e9d8;
+    font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+  }
+  #app {
+    position: relative; width: 100vw; display: flex; flex-direction: column;
+    height: 100vh; /* fallback */
+    height: calc(var(--vh, 1vh) * 100);
+    overflow-y: auto;
+  }
+
+  #stage {
+    position: relative; flex: 1 1 auto; min-height: 120px; overflow: hidden;
+    background: #000; display: flex; align-items: center; justify-content: center;
+  }
+  canvas#view { width: 100%; height: 100%; object-fit: cover; display: block; background:#000; }
+  video#src { display: none; }
+
+  #title {
+    position: absolute; top: env(safe-area-inset-top, 12px); left: 0; right: 0;
+    text-align: center; padding-top: 10px; z-index: 5; pointer-events: none;
+  }
+  #title h1 {
+    margin: 0; font-size: 20px; letter-spacing: 1px;
+    color: #ffd873; text-shadow: 0 2px 6px rgba(0,0,0,.6);
+  }
+  #title span { font-size: 11px; color: #d9c9a3; opacity: .85; }
+
+  #flash {
+    position: absolute; inset: 0; background: #fff; opacity: 0;
+    pointer-events: none; z-index: 20;
+  }
+  #flash.on { animation: flashpop .25s ease-out; }
+  @keyframes flashpop { 0% { opacity: .9; } 100% { opacity: 0; } }
+
+  #savedToast {
+    position: absolute; bottom: 18px; left: 50%; transform: translateX(-50%) translateY(10px);
+    background: rgba(23,19,13,.92); color: #ffd873; font-size: 13px; font-weight: 600;
+    padding: 8px 16px; border-radius: 999px; opacity: 0; pointer-events: none;
+    transition: opacity .2s ease, transform .2s ease; z-index: 15;
+    border: 1px solid #4a3c22;
+  }
+  #savedToast.on { opacity: 1; transform: translateX(-50%) translateY(0); }
+
+  #permMsg {
+    position: absolute; inset: 0; display: flex; align-items: center; justify-content: center;
+    flex-direction: column; gap: 12px; padding: 24px; text-align: center; z-index: 10;
+    background: #0d0b08;
+  }
+  #permMsg button {
+    background: #ffd873; color: #3a2b0d; border: none; padding: 12px 22px;
+    border-radius: 999px; font-weight: 700; font-size: 15px;
+  }
+
+  #controls {
+    padding: 14px 16px calc(22px + env(safe-area-inset-bottom, 12px));
+    background: linear-gradient(180deg, #17130d, #0d0b08);
+    display: flex; flex-direction: column; gap: 10px; z-index: 5;
+    flex-shrink: 0;
+  }
+  .row { display: flex; align-items: center; gap: 10px; }
+  .row label { font-size: 12px; width: 78px; color: #cbb98a; flex-shrink: 0; }
+  input[type=range] {
+    flex: 1; height: 4px; -webkit-appearance: none; background: #3a3020; border-radius: 2px;
+  }
+  input[type=range]::-webkit-slider-thumb {
+    -webkit-appearance: none; width: 18px; height: 18px; border-radius: 50%;
+    background: #ffd873; border: 2px solid #3a2b0d;
+  }
+  .val { width: 34px; text-align: right; font-size: 12px; color: #ffd873; }
+
+  #btnRow { display: flex; align-items: center; justify-content: space-between; margin-top: 6px; }
+  .iconBtn {
+    background: #241d13; border: 1px solid #4a3c22; color: #f1e9d8;
+    width: 46px; height: 46px; border-radius: 50%; font-size: 20px;
+    display: flex; align-items: center; justify-content: center;
+  }
+  #shutter {
+    width: 72px; height: 72px; border-radius: 50%; background: #ffd873;
+    border: 5px solid #6b551f; box-shadow: 0 0 0 3px #ffd87355;
+  }
+  #shutter:active { background: #e0b94f; }
+
+  #gallery {
+    position: fixed; inset: 0; background: #0d0b08; z-index: 30; display: none;
+    flex-direction: column;
+  }
+  #gallery.open { display: flex; }
+  #galTop { display: flex; justify-content: space-between; align-items: center; padding: 14px 16px; }
+  #galTop button { background: none; border: none; color: #ffd873; font-size: 16px; padding: 6px 10px; }
+  #galImgWrap { flex: 1; display: flex; align-items: center; justify-content: center; padding: 10px; overflow: hidden; }
+  #galImgWrap img { max-width: 100%; max-height: 100%; border-radius: 4px; box-shadow: 0 8px 30px rgba(0,0,0,.5); }
+  #galActions { display: flex; gap: 10px; padding: 14px 16px calc(18px + env(safe-area-inset-bottom, 0px)); }
+  #galActions button {
+    flex: 1; padding: 12px; border-radius: 10px; border: none; font-weight: 700; font-size: 14px;
+  }
+  #galActions .save { background: #ffd873; color: #3a2b0d; }
+  #galActions .del { background: #3a2417; color: #ff9d7a; }
+  #emptyGal { margin: auto; color: #8a7a58; font-size: 13px; text-align: center; padding: 40px; }
+</style>
+</head>
+<body>
+<div id="app">
+  <div id="title"><h1>🥔 Potato Cam</h1><span>lowering your camera's self-esteem since today</span></div>
+
+  <div id="stage">
+    <video id="src" playsinline muted autoplay></video>
+    <canvas id="view"></canvas>
+    <div id="flash"></div>
+    <div id="savedToast">Saved to Downloads ✓</div>
+    <div id="permMsg" style="display:none;">
+      <div style="font-size:40px;">🥔</div>
+      <div>Potato Cam needs camera access to make your photos worse.</div>
+      <button id="askPerm">Allow Camera</button>
+    </div>
+  </div>
+
+  <div id="controls">
+    <div class="row">
+      <label>Potato-ness</label>
+      <input id="potato" type="range" min="1" max="10" value="3">
+      <div class="val" id="potatoVal">3</div>
+    </div>
+    <div class="row">
+      <label>Grime / Noise</label>
+      <input id="noise" type="range" min="0" max="10" value="2">
+      <div class="val" id="noiseVal">2</div>
+    </div>
+    <div id="btnRow">
+      <button class="iconBtn" id="flipBtn" title="Switch camera">🔄</button>
+      <button id="shutter" title="Capture"></button>
+      <button class="iconBtn" id="galBtn" title="Gallery">🖼️</button>
+    </div>
+  </div>
+</div>
+
+<div id="gallery">
+  <div id="galTop">
+    <button id="galClose">✕ Close</button>
+    <span id="galCount" style="font-size:12px;color:#8a7a58;"></span>
+  </div>
+  <div id="galImgWrap"><div id="emptyGal">No potatoes captured yet.</div></div>
+  <div id="galActions" style="display:none;">
+    <button class="save" id="galSave">Save again</button>
+    <button class="del" id="galDel">Delete</button>
+  </div>
+</div>
+
+<script>
+(function () {
+  const video = document.getElementById('src');
+  const view = document.getElementById('view');
+  const ctx = view.getContext('2d', { willReadFrequently: true });
+  const permMsg = document.getElementById('permMsg');
+  const askPerm = document.getElementById('askPerm');
+  const flashEl = document.getElementById('flash');
+  const savedToast = document.getElementById('savedToast');
+  const potatoSlider = document.getElementById('potato');
+  const noiseSlider = document.getElementById('noise');
+  const potatoVal = document.getElementById('potatoVal');
+  const noiseVal = document.getElementById('noiseVal');
+  const shutter = document.getElementById('shutter');
+  const flipBtn = document.getElementById('flipBtn');
+  const galBtn = document.getElementById('galBtn');
+  const gallery = document.getElementById('gallery');
+  const galClose = document.getElementById('galClose');
+  const galImgWrap = document.getElementById('galImgWrap');
+  const galActions = document.getElementById('galActions');
+  const galSave = document.getElementById('galSave');
+  const galDel = document.getElementById('galDel');
+  const galCount = document.getElementById('galCount');
+
+  // Fix for mobile browsers/webviews where 100vh includes area hidden behind
+  // the address bar or system nav bar, cutting off the bottom controls.
+  function setRealVH() {
+    const h = (window.visualViewport ? window.visualViewport.height : window.innerHeight);
+    document.documentElement.style.setProperty('--vh', `${h * 0.01}px`);
+  }
+  setRealVH();
+  window.addEventListener('resize', setRealVH);
+  window.addEventListener('orientationchange', () => setTimeout(setRealVH, 200));
+  if (window.visualViewport) {
+    window.visualViewport.addEventListener('resize', setRealVH);
+  }
+
+  let stream = null;
+  let facingMode = 'environment';
+  let rafId = null;
+  let shots = []; // {url, blob}
+  let galIndex = -1;
+
+  potatoSlider.oninput = () => potatoVal.textContent = potatoSlider.value;
+  noiseSlider.oninput = () => noiseVal.textContent = noiseSlider.value;
+
+  function offscreen(w, h) {
+    const c = document.createElement('canvas');
+    c.width = w; c.height = h;
+    return c;
+  }
+
+  // --- The potato pipeline ---
+  // 1. Downscale hard (blocky pixelation), nearest-neighbor upscale
+  // 2. Posterize color levels (banding)
+  // 3. Push a sickly yellow-green cast + crushed contrast (bad auto white balance)
+  // 4. Add per-pixel noise/grime
+  // 5. Vignette
+  // 6. On capture only: extra lossy JPEG re-compression pass
+  function potatoFrame(sourceCanvas, outCtx, outW, outH, potatoAmt, noiseAmt, extraJpegMangle) {
+    const p = potatoAmt / 10; // 0..1
+    const n = noiseAmt / 10;
+
+    // pixelation factor: at potato=1 ~ barely there, at 10 ~ chunky but still readable
+    const blockDivisor = Math.max(1.4, 1 + p * 18); // ~2..19
+    const smallW = Math.max(6, Math.floor(outW / blockDivisor));
+    const smallH = Math.max(6, Math.floor(outH / blockDivisor));
+
+    const small = offscreen(smallW, smallH);
+    const sctx = small.getContext('2d');
+    sctx.imageSmoothingEnabled = true;
+    sctx.drawImage(sourceCanvas, 0, 0, smallW, smallH);
+
+    outCtx.imageSmoothingEnabled = false;
+    outCtx.clearRect(0, 0, outW, outH);
+    outCtx.drawImage(small, 0, 0, smallW, smallH, 0, 0, outW, outH);
+
+    // pixel-level mangling
+    const imgData = outCtx.getImageData(0, 0, outW, outH);
+    const d = imgData.data;
+    const levels = Math.max(4, Math.round(14 - p * 8)); // fewer levels = more banding, floor raised
+    const step = 255 / (levels - 1);
+
+    for (let i = 0; i < d.length; i += 4) {
+      let r = d[i], g = d[i + 1], b = d[i + 2];
+
+      // posterize
+      r = Math.round(Math.round(r / step) * step);
+      g = Math.round(Math.round(g / step) * step);
+      b = Math.round(Math.round(b / step) * step);
+
+      // mild crushed contrast + slight warm/greenish white balance
+      const contrast = 1 + p * 0.25;
+      r = (r - 128) * contrast + 128 - p * 6;
+      g = (g - 128) * contrast + 128 + p * 5;
+      b = (b - 128) * contrast + 128 - p * 10;
+
+      // grime noise
+      if (n > 0) {
+        const grain = (Math.random() - 0.5) * n * 45;
+        r += grain; g += grain; b += grain;
+      }
+
+      d[i] = r < 0 ? 0 : r > 255 ? 255 : r;
+      d[i + 1] = g < 0 ? 0 : g > 255 ? 255 : g;
+      d[i + 2] = b < 0 ? 0 : b > 255 ? 255 : b;
+    }
+    outCtx.putImageData(imgData, 0, 0);
+
+    // vignette
+    const grad = outCtx.createRadialGradient(
+      outW / 2, outH / 2, outH * 0.25,
+      outW / 2, outH / 2, outH * 0.75
+    );
+    grad.addColorStop(0, 'rgba(0,0,0,0)');
+    grad.addColorStop(1, `rgba(0,0,0,${0.12 + p * 0.22})`);
+    outCtx.fillStyle = grad;
+    outCtx.fillRect(0, 0, outW, outH);
+
+    if (extraJpegMangle) {
+      // simulate repeated lossy re-saves
+      return outCtx.canvas;
+    }
+  }
+
+  async function reJpegMangle(canvas, quality) {
+    return new Promise((resolve) => {
+      const url = canvas.toDataURL('image/jpeg', quality);
+      const img = new Image();
+      img.onload = () => {
+        canvas.getContext('2d').drawImage(img, 0, 0, canvas.width, canvas.height);
+        resolve();
+      };
+      img.src = url;
+    });
+  }
+
+  function resizeCanvas() {
+    const rect = document.getElementById('stage').getBoundingClientRect();
+    view.width = rect.width;
+    view.height = rect.height;
+  }
+  window.addEventListener('resize', resizeCanvas);
+  window.addEventListener('orientationchange', () => setTimeout(resizeCanvas, 250));
+  if (window.visualViewport) {
+    window.visualViewport.addEventListener('resize', resizeCanvas);
+  }
+
+  function drawLoop() {
+    if (video.readyState >= 2) {
+      const vw = video.videoWidth, vh = video.videoHeight;
+      if (vw && vh) {
+        // cover-fit source into view canvas aspect
+        const vc = offscreen(view.width, view.height);
+        const vctx = vc.getContext('2d');
+        const scale = Math.max(view.width / vw, view.height / vh);
+        const dw = vw * scale, dh = vh * scale;
+        const dx = (view.width - dw) / 2, dy = (view.height - dh) / 2;
+        vctx.save();
+        if (facingMode === 'user') { vctx.translate(view.width, 0); vctx.scale(-1, 1); }
+        vctx.drawImage(video, facingMode === 'user' ? view.width - dw - dx : dx, dy, dw, dh);
+        vctx.restore();
+
+        potatoFrame(vc, ctx, view.width, view.height, +potatoSlider.value, +noiseSlider.value, false);
+      }
+    }
+    rafId = requestAnimationFrame(drawLoop);
+  }
+
+  async function startCamera() {
+    try {
+      if (stream) stream.getTracks().forEach(t => t.stop());
+      stream = await navigator.mediaDevices.getUserMedia({
+        video: { facingMode, width: { ideal: 1280 }, height: { ideal: 1280 } },
+        audio: false
+      });
+      video.srcObject = stream;
+      await video.play();
+      permMsg.style.display = 'none';
+      resizeCanvas();
+      if (!rafId) drawLoop();
+    } catch (err) {
+      permMsg.style.display = 'flex';
+      console.error(err);
+    }
+  }
+
+  askPerm.onclick = startCamera;
+  flipBtn.onclick = () => {
+    facingMode = facingMode === 'environment' ? 'user' : 'environment';
+    startCamera();
+  };
+
+  function autoSave(blob, filename) {
+    try {
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = filename;
+      document.body.appendChild(a);
+      a.click();
+      a.remove();
+      setTimeout(() => URL.revokeObjectURL(url), 4000);
+      return true;
+    } catch (err) {
+      console.error('autoSave failed', err);
+      return false;
+    }
+  }
+
+  shutter.onclick = async () => {
+    flashEl.classList.remove('on'); void flashEl.offsetWidth; flashEl.classList.add('on');
+
+    const outW = view.width, outH = view.height;
+    const shotCanvas = offscreen(outW, outH);
+    const sctx2 = shotCanvas.getContext('2d');
+    sctx2.drawImage(view, 0, 0);
+
+    // extra final degradation: a couple of lossy JPEG passes, kept mild
+    await reJpegMangle(shotCanvas, 0.35);
+    await reJpegMangle(shotCanvas, 0.45);
+
+    const blob = await new Promise(res => shotCanvas.toBlob(res, 'image/jpeg', 0.75));
+    const filename = `potato-cam-${Date.now()}.jpg`;
+    const url = URL.createObjectURL(blob);
+    shots.unshift({ url, blob, filename, saved: true });
+    autoSave(blob, filename);
+    savedToast.classList.add('on');
+    setTimeout(() => savedToast.classList.remove('on'), 1400);
+    openGallery(0);
+  };
+
+  function openGallery(index) {
+    gallery.classList.add('open');
+    if (shots.length === 0) {
+      galImgWrap.innerHTML = '<div id="emptyGal">No potatoes captured yet.</div>';
+      galActions.style.display = 'none';
+      galCount.textContent = '';
+      galIndex = -1;
+      return;
+    }
+    galIndex = index >= 0 ? index : 0;
+    renderGalImage();
+  }
+
+  function renderGalImage() {
+    const s = shots[galIndex];
+    galImgWrap.innerHTML = '';
+    const img = document.createElement('img');
+    img.src = s.url;
+    galImgWrap.appendChild(img);
+    galActions.style.display = 'flex';
+    galCount.textContent = `${galIndex + 1} / ${shots.length}`;
+  }
+
+  galBtn.onclick = () => openGallery(shots.length ? 0 : -1);
+  galClose.onclick = () => gallery.classList.remove('open');
+
+  galSave.onclick = () => {
+    const s = shots[galIndex];
+    autoSave(s.blob, s.filename || `potato-cam-${Date.now()}.jpg`);
+    galSave.textContent = 'Saved ✓';
+    setTimeout(() => { galSave.textContent = 'Save again'; }, 1200);
+  };
+
+  galDel.onclick = () => {
+    shots.splice(galIndex, 1);
+    if (shots.length === 0) { openGallery(-1); return; }
+    galIndex = Math.min(galIndex, shots.length - 1);
+    renderGalImage();
+  };
+
+  resizeCanvas();
+  startCamera();
+})();
+</script>
+</body>
+</html>
