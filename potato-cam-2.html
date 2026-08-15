@@ -72,9 +72,11 @@
     display: flex; flex-direction: column; gap: 10px; z-index: 5;
     flex-shrink: 0;
   }
+  #bottomWrap { display: contents; }
   #typeRow {
     display: flex; gap: 8px; overflow-x: auto; padding-bottom: 2px;
     scrollbar-width: none; -webkit-overflow-scrolling: touch;
+    order: 1;
   }
   #typeRow::-webkit-scrollbar { display: none; }
   .typeChip {
@@ -90,6 +92,8 @@
 
   .row { display: flex; align-items: center; gap: 10px; }
   .row label { font-size: 12px; width: 78px; color: #cbb98a; flex-shrink: 0; }
+  .potatoRow { order: 2; }
+  .noiseRow { order: 3; }
   input[type=range] {
     flex: 1; height: 4px; -webkit-appearance: none; background: #3a3020; border-radius: 2px;
   }
@@ -99,7 +103,7 @@
   }
   .val { width: 34px; text-align: right; font-size: 12px; color: #ffd873; }
 
-  #btnRow { display: flex; align-items: center; justify-content: space-between; margin-top: 6px; }
+  #btnRow { display: flex; align-items: center; justify-content: space-between; margin-top: 6px; order: 4; }
   .iconBtn {
     background: #241d13; border: 1px solid #4a3c22; color: #f1e9d8;
     width: 46px; height: 46px; border-radius: 50%; font-size: 20px;
@@ -145,19 +149,25 @@
   @media (orientation: landscape) {
     #app { flex-direction: row; }
     #controls {
-      width: 128px; flex-shrink: 0; flex-direction: column; justify-content: flex-start;
+      width: 240px; flex-shrink: 0; flex-direction: column; justify-content: flex-start;
       overflow-y: auto; padding: 12px 10px 12px calc(10px + env(safe-area-inset-right, 0px));
       gap: 14px;
     }
     #stage { min-width: 120px; }
-    #typeRow { flex-direction: column; overflow-x: visible; overflow-y: auto; max-height: 160px; }
-    .typeChip { flex-direction: row; justify-content: flex-start; width: 100%; min-width: 0; }
     .row { flex-direction: column; align-items: stretch; gap: 4px; }
     .row label { width: auto; }
     .row input[type=range] { width: 100%; }
-    #btnRow { flex-direction: column; gap: 12px; margin-top: auto; }
     #title { top: env(safe-area-inset-top, 8px); }
     #title span { display: none; }
+
+    /* Filter chips sit to the left of the shutter/flip/gallery column,
+       same horizontal-scrolling chip style as portrait — just repositioned. */
+    #bottomWrap {
+      display: flex; flex-direction: row; align-items: center; gap: 10px;
+      order: 5; margin-top: auto;
+    }
+    #typeRow { flex: 1; min-width: 0; order: initial; }
+    #btnRow { flex-direction: column; gap: 12px; margin-top: 0; order: initial; flex-shrink: 0; }
   }
 </style>
 </head>
@@ -178,28 +188,30 @@
   </div>
 
   <div id="controls">
-    <div id="typeRow">
-      <button class="typeChip active" data-type="russet">🥔<span>Russet</span></button>
-      <button class="typeChip" data-type="sweet">🍠<span>Sweet</span></button>
-      <button class="typeChip" data-type="purple">🍆<span>Purple</span></button>
-      <button class="typeChip" data-type="red">🔴<span>Red</span></button>
-      <button class="typeChip" data-type="gold">🟡<span>Gold</span></button>
-      <button class="typeChip" data-type="frozen">🧊<span>Frozen</span></button>
+    <div id="bottomWrap">
+      <div id="typeRow">
+        <button class="typeChip active" data-type="russet">🥔<span>Russet</span></button>
+        <button class="typeChip" data-type="sweet">🍠<span>Sweet</span></button>
+        <button class="typeChip" data-type="purple">🍆<span>Purple</span></button>
+        <button class="typeChip" data-type="red">🔴<span>Red</span></button>
+        <button class="typeChip" data-type="gold">🟡<span>Gold</span></button>
+        <button class="typeChip" data-type="frozen">🧊<span>Frozen</span></button>
+      </div>
+      <div id="btnRow">
+        <button class="iconBtn" id="flipBtn" title="Switch camera">🔄</button>
+        <button id="shutter" title="Capture"></button>
+        <button class="iconBtn" id="galBtn" title="Gallery">🖼️</button>
+      </div>
     </div>
-    <div class="row">
+    <div class="row potatoRow">
       <label>Potato-ness</label>
       <input id="potato" type="range" min="1" max="10" value="3">
       <div class="val" id="potatoVal">3</div>
     </div>
-    <div class="row">
+    <div class="row noiseRow">
       <label>Grime / Noise</label>
       <input id="noise" type="range" min="0" max="10" value="2">
       <div class="val" id="noiseVal">2</div>
-    </div>
-    <div id="btnRow">
-      <button class="iconBtn" id="flipBtn" title="Switch camera">🔄</button>
-      <button id="shutter" title="Capture"></button>
-      <button class="iconBtn" id="galBtn" title="Gallery">🖼️</button>
     </div>
   </div>
 </div>

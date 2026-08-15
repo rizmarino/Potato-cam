@@ -1,6 +1,6 @@
 // Bump this version string any time you update potato-cam-2.html, manifest.json,
 // or the icons — it forces the service worker to fetch fresh copies and re-cache.
-const CACHE_NAME = 'potato-cam-v6';
+const CACHE_NAME = 'potato-cam-v7';
 
 // IMPORTANT: these must exactly match the filenames actually deployed in your repo.
 // If you rename the html file again, update the entry below to match.
