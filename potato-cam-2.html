@@ -182,6 +182,14 @@
 </div>
 
 <script>
+if ('serviceWorker' in navigator) {
+  window.addEventListener('load', () => {
+    navigator.serviceWorker.register('sw.js').catch((err) => {
+      console.warn('Service worker registration failed (offline caching won\'t work):', err);
+    });
+  });
+}
+
 (function () {
   const video = document.getElementById('src');
   const view = document.getElementById('view');
