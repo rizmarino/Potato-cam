@@ -161,13 +161,18 @@
     #title span { display: none; }
 
     /* Filter chips sit to the left of the shutter/flip/gallery column,
-       same horizontal-scrolling chip style as portrait — just repositioned. */
+       stacked vertically here (unlike portrait's horizontal row above),
+       sharing the available height with the button column. */
     #bottomWrap {
-      display: flex; flex-direction: row; align-items: center; gap: 10px;
-      order: 5; margin-top: auto;
+      display: flex; flex-direction: row; align-items: stretch; gap: 10px;
+      order: 5; margin-top: 0; flex: 1; min-height: 0;
     }
-    #typeRow { flex: 1; min-width: 0; order: initial; }
-    #btnRow { flex-direction: column; gap: 12px; margin-top: 0; order: initial; flex-shrink: 0; }
+    #typeRow {
+      flex: 1; min-width: 0; min-height: 0; order: initial;
+      flex-direction: column; overflow-x: hidden; overflow-y: auto; gap: 8px;
+    }
+    .typeChip { flex-direction: row; justify-content: flex-start; width: 100%; min-width: 0; flex-shrink: 0; }
+    #btnRow { flex-direction: column; gap: 12px; margin-top: 0; order: initial; flex-shrink: 0; justify-content: center; }
   }
 </style>
 </head>
