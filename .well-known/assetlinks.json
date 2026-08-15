@@ -1,8 +1,8 @@
 [{
-  "relation": ["delegate_permission/common.handle_all_urls"],
-  "target": {
-    "namespace": "android_app",
-    "package_name": "com.yourname.potatocam",
-    "sha256_cert_fingerprints": ["YOUR:SHA256:FINGERPRINT:HERE"]
-  }
-}]
+      "relation": ["delegate_permission/common.handle_all_urls"],
+      "target": {
+        "namespace": "android_app",
+        "package_name": "io.github.rizmarino.twa",
+        "sha256_cert_fingerprints": ["D6:39:F6:F5:D1:D0:6E:1F:4F:32:14:A7:51:C4:CA:96:DA:94:1C:2B:5E:F9:F2:AF:DC:04:F2:5D:08:E5:F6:C8"]
+      }
+    }]
