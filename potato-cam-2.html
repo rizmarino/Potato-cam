@@ -118,8 +118,17 @@
   #gallery.open { display: flex; }
   #galTop { display: flex; justify-content: space-between; align-items: center; padding: 14px 16px; }
   #galTop button { background: none; border: none; color: #ffd873; font-size: 16px; padding: 6px 10px; }
-  #galImgWrap { flex: 1; display: flex; align-items: center; justify-content: center; padding: 10px; overflow: hidden; }
-  #galImgWrap img { max-width: 100%; max-height: 100%; border-radius: 4px; box-shadow: 0 8px 30px rgba(0,0,0,.5); }
+  #galImgWrap { flex: 1; display: flex; align-items: center; justify-content: center; padding: 10px; overflow: hidden; position: relative; touch-action: pan-y; }
+  #galImgWrap img { max-width: 100%; max-height: 100%; border-radius: 4px; box-shadow: 0 8px 30px rgba(0,0,0,.5); user-select: none; -webkit-user-drag: none; }
+  .galNavBtn {
+    position: absolute; top: 50%; transform: translateY(-50%); z-index: 2;
+    width: 44px; height: 44px; border-radius: 50%; border: 1px solid #4a3c22;
+    background: rgba(23,19,13,.75); color: #ffd873; font-size: 24px; line-height: 1;
+    display: flex; align-items: center; justify-content: center;
+  }
+  .galNavBtn:disabled { opacity: 0.25; }
+  #galPrev { left: 8px; }
+  #galNext { right: 8px; }
   #galActions { display: flex; gap: 10px; padding: 14px 16px calc(18px + env(safe-area-inset-bottom, 0px)); }
   #galActions button {
     flex: 1; padding: 12px; border-radius: 10px; border: none; font-weight: 700; font-size: 14px;
@@ -200,7 +209,12 @@
     <button id="galClose">✕ Close</button>
     <span id="galCount" style="font-size:12px;color:#8a7a58;"></span>
   </div>
-  <div id="galImgWrap"><div id="emptyGal">No potatoes captured yet.</div></div>
+  <div id="galImgWrap">
+    <button id="galPrev" class="galNavBtn" aria-label="Previous photo">‹</button>
+    <img id="galImg" alt="Captured photo" style="display:none;">
+    <div id="emptyGal">No potatoes captured yet.</div>
+    <button id="galNext" class="galNavBtn" aria-label="Next photo">›</button>
+  </div>
   <div id="galActions" style="display:none;">
     <button class="save" id="galSave">Save again</button>
     <button class="del" id="galDel">Delete</button>
@@ -234,6 +248,10 @@ if ('serviceWorker' in navigator) {
   const gallery = document.getElementById('gallery');
   const galClose = document.getElementById('galClose');
   const galImgWrap = document.getElementById('galImgWrap');
+  const galImg = document.getElementById('galImg');
+  const galEmpty = document.getElementById('emptyGal');
+  const galPrev = document.getElementById('galPrev');
+  const galNext = document.getElementById('galNext');
   const galActions = document.getElementById('galActions');
   const galSave = document.getElementById('galSave');
   const galDel = document.getElementById('galDel');
@@ -558,7 +576,10 @@ if ('serviceWorker' in navigator) {
   function openGallery(index) {
     gallery.classList.add('open');
     if (shots.length === 0) {
-      galImgWrap.innerHTML = '<div id="emptyGal">No potatoes captured yet.</div>';
+      galImg.style.display = 'none';
+      galEmpty.style.display = 'block';
+      galPrev.style.display = 'none';
+      galNext.style.display = 'none';
       galActions.style.display = 'none';
       galCount.textContent = '';
       galIndex = -1;
@@ -570,13 +591,41 @@ if ('serviceWorker' in navigator) {
 
   function renderGalImage() {
     const s = shots[galIndex];
-    galImgWrap.innerHTML = '';
-    const img = document.createElement('img');
-    img.src = s.url;
-    galImgWrap.appendChild(img);
+    galEmpty.style.display = 'none';
+    galImg.style.display = 'block';
+    galImg.src = s.url;
     galActions.style.display = 'flex';
     galCount.textContent = `${galIndex + 1} / ${shots.length}`;
+
+    const multi = shots.length > 1;
+    galPrev.style.display = multi ? 'flex' : 'none';
+    galNext.style.display = multi ? 'flex' : 'none';
+    galPrev.disabled = galIndex === 0;
+    galNext.disabled = galIndex === shots.length - 1;
   }
+
+  function goPrev() {
+    if (galIndex > 0) { galIndex--; renderGalImage(); }
+  }
+  function goNext() {
+    if (galIndex < shots.length - 1) { galIndex++; renderGalImage(); }
+  }
+  galPrev.onclick = goPrev;
+  galNext.onclick = goNext;
+
+  // Swipe left/right through photos
+  let touchStartX = null;
+  galImgWrap.addEventListener('touchstart', (e) => {
+    touchStartX = e.touches[0].clientX;
+  }, { passive: true });
+  galImgWrap.addEventListener('touchend', (e) => {
+    if (touchStartX === null) return;
+    const dx = e.changedTouches[0].clientX - touchStartX;
+    touchStartX = null;
+    const SWIPE_THRESHOLD = 40;
+    if (dx > SWIPE_THRESHOLD) goPrev();       // swipe right → older photo
+    else if (dx < -SWIPE_THRESHOLD) goNext(); // swipe left → newer photo
+  }, { passive: true });
 
   galBtn.onclick = () => openGallery(shots.length ? 0 : -1);
   galClose.onclick = () => gallery.classList.remove('open');
