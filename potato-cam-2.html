@@ -391,12 +391,16 @@ if ('serviceWorker' in navigator) {
   // offsets (always applied, independent of the potato-ness slider) and sat
   // is a saturation multiplier (1 = untouched, >1 = more vivid).
   const POTATO_TYPES = {
-    russet:  { name: 'Russet',       emoji: '🥔', rShift: -8,  gShift: 4,   bShift: -12, sat: 1.0  },
-    sweet:   { name: 'Sweet Potato', emoji: '🍠', rShift: 42,  gShift: 8,   bShift: -30, sat: 1.25 },
-    purple:  { name: 'Purple',       emoji: '🍆', rShift: 6,   gShift: -18, bShift: 34,  sat: 1.3  },
-    red:     { name: 'Red Potato',   emoji: '🔴', rShift: 34,  gShift: -14, bShift: -8,  sat: 1.2  },
-    gold:    { name: 'Yukon Gold',   emoji: '🟡', rShift: 22,  gShift: 16,  bShift: -18, sat: 1.1  },
-    frozen:  { name: 'Frozen',       emoji: '🧊', rShift: -20, gShift: 0,   bShift: 26,  sat: 0.85 }
+    // divX/divY: multipliers on the block-size divisor for width/height —
+    // >1 makes blocks bigger along that axis, <1 makes them smaller/more detailed.
+    // smooth: use bilinear (blurry) upscaling instead of crisp nearest-neighbor blocks.
+    // postBlur: extra blur pass (px) applied after everything else, for a frosted look.
+    russet:  { name: 'Russet',       emoji: '🥔', rShift: -8,  gShift: 4,   bShift: -12, sat: 1.0,  divX: 1,   divY: 1,   smooth: false, postBlur: 0 },
+    sweet:   { name: 'Sweet Potato', emoji: '🍠', rShift: 42,  gShift: 8,   bShift: -30, sat: 1.25, divX: 1,   divY: 1,   smooth: true,  postBlur: 0 },
+    purple:  { name: 'Purple',       emoji: '🍆', rShift: 6,   gShift: -18, bShift: 34,  sat: 1.3,  divX: 0.45, divY: 2.4, smooth: false, postBlur: 0 },
+    red:     { name: 'Red Potato',   emoji: '🔴', rShift: 34,  gShift: -14, bShift: -8,  sat: 1.2,  divX: 2.4, divY: 0.45, smooth: false, postBlur: 0 },
+    gold:    { name: 'Yukon Gold',   emoji: '🟡', rShift: 22,  gShift: 16,  bShift: -18, sat: 1.1,  divX: 1.7, divY: 1.7, smooth: false, postBlur: 0 },
+    frozen:  { name: 'Frozen',       emoji: '🧊', rShift: -20, gShift: 0,   bShift: 26,  sat: 0.85, divX: 1,   divY: 1,   smooth: false, postBlur: 2.5 }
   };
   let currentPotatoType = 'russet';
 
@@ -413,18 +417,22 @@ if ('serviceWorker' in navigator) {
   function potatoFrame(sourceCanvas, outCtx, outW, outH, potatoAmt, noiseAmt, extraJpegMangle, typeKey) {
     const p = potatoAmt / 10; // 0..1
     const n = noiseAmt / 10;
+    const type = POTATO_TYPES[typeKey] || POTATO_TYPES.russet;
 
-    // pixelation factor: at potato=1 ~ barely there, at 10 ~ chunky but still readable
+    // pixelation factor: at potato=1 ~ barely there, at 10 ~ chunky but still readable.
+    // Per-type divX/divY multipliers reshape blocks into bars/squares/etc.
     const blockDivisor = Math.max(1.4, 1 + p * 18); // ~2..19
-    const smallW = Math.max(6, Math.floor(outW / blockDivisor));
-    const smallH = Math.max(6, Math.floor(outH / blockDivisor));
+    const smallW = Math.max(6, Math.floor(outW / (blockDivisor * type.divX)));
+    const smallH = Math.max(6, Math.floor(outH / (blockDivisor * type.divY)));
 
     const small = offscreen(smallW, smallH);
     const sctx = small.getContext('2d');
     sctx.imageSmoothingEnabled = true;
     sctx.drawImage(sourceCanvas, 0, 0, smallW, smallH);
 
-    outCtx.imageSmoothingEnabled = false;
+    // "Soft" types (e.g. mushy sweet potato) use bilinear upscaling for a
+    // blurred mosaic instead of crisp hard-edged blocks.
+    outCtx.imageSmoothingEnabled = !!type.smooth;
     outCtx.clearRect(0, 0, outW, outH);
     outCtx.drawImage(small, 0, 0, smallW, smallH, 0, 0, outW, outH);
 
@@ -433,8 +441,6 @@ if ('serviceWorker' in navigator) {
     const d = imgData.data;
     const levels = Math.max(4, Math.round(14 - p * 8)); // fewer levels = more banding, floor raised
     const step = 255 / (levels - 1);
-
-    const type = POTATO_TYPES[typeKey] || POTATO_TYPES.russet;
 
     for (let i = 0; i < d.length; i += 4) {
       let r = d[i], g = d[i + 1], b = d[i + 2];
@@ -475,6 +481,17 @@ if ('serviceWorker' in navigator) {
     grad.addColorStop(1, `rgba(0,0,0,${0.12 + p * 0.22})`);
     outCtx.fillStyle = grad;
     outCtx.fillRect(0, 0, outW, outH);
+
+    // "Frozen" gets a frosted-glass blur pass on top of everything else
+    if (type.postBlur > 0 && outCtx.filter !== undefined) {
+      const blurred = offscreen(outW, outH);
+      const bctx = blurred.getContext('2d');
+      bctx.filter = `blur(${type.postBlur}px)`;
+      bctx.drawImage(outCtx.canvas, 0, 0);
+      outCtx.clearRect(0, 0, outW, outH);
+      outCtx.filter = 'none';
+      outCtx.drawImage(blurred, 0, 0);
+    }
 
     if (extraJpegMangle) {
       // simulate repeated lossy re-saves
