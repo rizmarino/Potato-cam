@@ -2,7 +2,7 @@
   "name": "Potato Cam",
   "short_name": "PotatoCam",
   "description": "Makes your camera worse, on purpose.",
-  "start_url": "./potato-cam.html",
+  "start_url": "./potato-cam-2.html",
   "scope": "./",
   "display": "standalone",
   "orientation": "portrait",
