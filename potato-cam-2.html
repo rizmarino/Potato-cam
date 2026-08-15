@@ -56,6 +56,21 @@
   }
   #savedToast.on { opacity: 1; transform: translateX(-50%) translateY(0); }
 
+  #landscapeWarn {
+    display: none; position: fixed; inset: 0; z-index: 100;
+    background: #0d0b08; color: #f1e9d8;
+    flex-direction: column; align-items: center; justify-content: center;
+    gap: 14px; padding: 30px; text-align: center;
+  }
+  #landscapeWarn .icon { font-size: 46px; animation: tilt 1.6s ease-in-out infinite; }
+  @keyframes tilt { 0%,100% { transform: rotate(0deg); } 50% { transform: rotate(90deg); } }
+  #landscapeWarn p { margin: 0; color: #cbb98a; font-size: 14px; max-width: 260px; }
+
+  @media (orientation: landscape) {
+    #landscapeWarn { display: flex; }
+    #app { visibility: hidden; }
+  }
+
   #permMsg {
     position: absolute; inset: 0; display: flex; align-items: center; justify-content: center;
     flex-direction: column; gap: 12px; padding: 24px; text-align: center; z-index: 10;
@@ -114,6 +129,12 @@
 </style>
 </head>
 <body>
+<div id="landscapeWarn">
+  <div class="icon">📱</div>
+  <div style="font-weight:700; font-size:16px;">Rotate back to portrait</div>
+  <p>Potato Cam only works upright — the shutter and controls stay put that way.</p>
+</div>
+
 <div id="app">
   <div id="title"><h1>🥔 Potato Cam</h1><span>lowering your camera's self-esteem since today</span></div>
 
@@ -196,6 +217,20 @@
   if (window.visualViewport) {
     window.visualViewport.addEventListener('resize', setRealVH);
   }
+
+  // Try to hard-lock portrait where the platform allows it (works reliably once
+  // installed as a standalone/TWA app; in a plain browser tab this often requires
+  // fullscreen first, so it may silently no-op there — the CSS landscape overlay
+  // above is the guaranteed fallback either way).
+  function tryLockPortrait() {
+    if (screen.orientation && screen.orientation.lock) {
+      screen.orientation.lock('portrait').catch(() => {});
+    }
+  }
+  tryLockPortrait();
+  document.addEventListener('visibilitychange', () => {
+    if (!document.hidden) tryLockPortrait();
+  });
 
   let stream = null;
   let facingMode = 'environment';
