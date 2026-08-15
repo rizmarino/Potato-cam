@@ -56,6 +56,27 @@
   }
   #savedToast.on { opacity: 1; transform: translateX(-50%) translateY(0); }
 
+  #modeToggle {
+    position: absolute; bottom: 14px; left: 50%; transform: translateX(-50%); z-index: 6;
+    display: flex; background: rgba(23,19,13,.78); border: 1px solid #4a3c22;
+    border-radius: 999px; padding: 3px; gap: 2px;
+  }
+  .modeBtn {
+    border: none; background: transparent; color: #cbb98a; font-size: 11px; font-weight: 700;
+    padding: 7px 14px; border-radius: 999px;
+  }
+  .modeBtn.active { background: #ffd873; color: #3a2b0d; }
+
+  #recTimer {
+    position: absolute; top: calc(env(safe-area-inset-top, 12px) + 44px); left: 50%;
+    transform: translateX(-50%); z-index: 6; background: rgba(178,26,26,.9); color: #fff;
+    font-weight: 700; font-size: 12px; padding: 6px 12px; border-radius: 999px;
+    display: none; align-items: center; gap: 6px;
+  }
+  #recTimer.on { display: flex; }
+  #recTimer .dot { width: 8px; height: 8px; border-radius: 50%; background: #fff; animation: blinkDot 1s infinite; }
+  @keyframes blinkDot { 0%, 100% { opacity: 1; } 50% { opacity: .2; } }
+
   #permMsg {
     position: absolute; inset: 0; display: flex; align-items: center; justify-content: center;
     flex-direction: column; gap: 12px; padding: 24px; text-align: center; z-index: 10;
@@ -112,8 +133,13 @@
   #shutter {
     width: 72px; height: 72px; border-radius: 50%; background: #ffd873;
     border: 5px solid #6b551f; box-shadow: 0 0 0 3px #ffd87355;
+    transition: border-radius .15s ease, background .15s ease;
   }
   #shutter:active { background: #e0b94f; }
+  #shutter.videoMode { background: #e6423f; border-color: #7a1f1f; box-shadow: 0 0 0 3px #e6423f55; }
+  #shutter.videoMode:active { background: #c93430; }
+  #shutter.recording { border-radius: 18px; }
+  #flipBtn:disabled, #galBtn:disabled { opacity: 0.35; }
 
   #gallery {
     position: fixed; inset: 0; background: #0d0b08; z-index: 30; display: none;
@@ -186,6 +212,11 @@
     <canvas id="view"></canvas>
     <div id="flash"></div>
     <div id="savedToast">Saved to Downloads ✓</div>
+    <div id="recTimer"><span class="dot"></span><span class="time">00:00</span></div>
+    <div id="modeToggle">
+      <button class="modeBtn active" data-mode="photo">📷 Photo</button>
+      <button class="modeBtn" data-mode="video">🎥 Video</button>
+    </div>
     <div id="permMsg" style="display:none;">
       <div style="font-size:40px;">🥔</div>
       <div>Potato Cam needs camera access to make your photos worse.</div>
@@ -230,6 +261,7 @@
   <div id="galImgWrap">
     <button id="galPrev" class="galNavBtn" aria-label="Previous photo">‹</button>
     <img id="galImg" alt="Captured photo" style="display:none;">
+    <video id="galVideo" playsinline controls style="display:none; max-width:100%; max-height:100%; border-radius:4px;"></video>
     <div id="emptyGal">No potatoes captured yet.</div>
     <button id="galNext" class="galNavBtn" aria-label="Next photo">›</button>
   </div>
@@ -257,6 +289,9 @@ if ('serviceWorker' in navigator) {
   const askPerm = document.getElementById('askPerm');
   const flashEl = document.getElementById('flash');
   const savedToast = document.getElementById('savedToast');
+  const recTimer = document.getElementById('recTimer');
+  const recTimerLabel = recTimer.querySelector('.time');
+  const modeBtns = document.querySelectorAll('.modeBtn');
   const potatoSlider = document.getElementById('potato');
   const noiseSlider = document.getElementById('noise');
   const potatoVal = document.getElementById('potatoVal');
@@ -268,6 +303,7 @@ if ('serviceWorker' in navigator) {
   const galClose = document.getElementById('galClose');
   const galImgWrap = document.getElementById('galImgWrap');
   const galImg = document.getElementById('galImg');
+  const galVideo = document.getElementById('galVideo');
   const galEmpty = document.getElementById('emptyGal');
   const galPrev = document.getElementById('galPrev');
   const galNext = document.getElementById('galNext');
@@ -291,6 +327,13 @@ if ('serviceWorker' in navigator) {
   }
 
   let stream = null;
+  let currentMode = 'photo'; // 'photo' | 'video'
+  let mediaRecorder = null;
+  let recordedChunks = [];
+  let recordStartTime = 0;
+  let recordTimerInterval = null;
+  let micStream = null;        // cached after first grant, reused across recordings
+  let micPermissionDenied = false;
   let facingMode = 'environment';
   let rafId = null;
   let shots = []; // {id, url, blob, filename} — loaded from IndexedDB on startup, kept in sync on capture/delete
@@ -357,7 +400,8 @@ if ('serviceWorker' in navigator) {
       const records = await dbGetAllPhotos();
       records.sort((a, b) => b.id - a.id); // newest first
       shots = records.map((r) => ({
-        id: r.id, blob: r.blob, filename: r.filename, url: URL.createObjectURL(r.blob)
+        id: r.id, blob: r.blob, filename: r.filename, url: URL.createObjectURL(r.blob),
+        type: r.type || 'photo'
       }));
     } catch (err) {
       console.warn('Could not load saved photos', err);
@@ -373,6 +417,16 @@ if ('serviceWorker' in navigator) {
       currentPotatoType = chip.dataset.type;
       document.querySelectorAll('.typeChip').forEach((c) => c.classList.remove('active'));
       chip.classList.add('active');
+    });
+  });
+
+  modeBtns.forEach((btn) => {
+    btn.addEventListener('click', () => {
+      if (mediaRecorder && mediaRecorder.state === 'recording') return; // don't allow mode switch mid-recording
+      currentMode = btn.dataset.mode;
+      modeBtns.forEach((b) => b.classList.remove('active'));
+      btn.classList.add('active');
+      shutter.classList.toggle('videoMode', currentMode === 'video');
     });
   });
 
@@ -587,7 +641,13 @@ if ('serviceWorker' in navigator) {
     }
   }
 
-  shutter.onclick = async () => {
+  function showToast(msg) {
+    savedToast.textContent = msg;
+    savedToast.classList.add('on');
+    setTimeout(() => savedToast.classList.remove('on'), 1400);
+  }
+
+  async function capturePhoto() {
     flashEl.classList.remove('on'); void flashEl.offsetWidth; flashEl.classList.add('on');
 
     const outW = view.width, outH = view.height;
@@ -603,17 +663,110 @@ if ('serviceWorker' in navigator) {
     const id = Date.now();
     const filename = `potato-cam-${id}.jpg`;
     const url = URL.createObjectURL(blob);
-    shots.unshift({ id, url, blob, filename });
+    shots.unshift({ id, url, blob, filename, type: 'photo' });
     autoSave(blob, filename);
-    dbPutPhoto({ id, blob, filename }).catch((err) => console.warn('Could not persist photo', err));
-    savedToast.classList.add('on');
-    setTimeout(() => savedToast.classList.remove('on'), 1400);
+    dbPutPhoto({ id, blob, filename, type: 'photo' }).catch((err) => console.warn('Could not persist photo', err));
+    showToast('Saved to Downloads ✓');
+  }
+
+  function updateRecTimer() {
+    const secs = Math.floor((Date.now() - recordStartTime) / 1000);
+    const mm = String(Math.floor(secs / 60)).padStart(2, '0');
+    const ss = String(secs % 60).padStart(2, '0');
+    recTimerLabel.textContent = `${mm}:${ss}`;
+  }
+
+  async function startRecording() {
+    // Try to grab mic audio once per session; if denied, silently record video-only.
+    if (!micStream && !micPermissionDenied) {
+      try {
+        micStream = await navigator.mediaDevices.getUserMedia({ audio: true });
+      } catch (err) {
+        micPermissionDenied = true;
+        console.warn('Mic permission denied — recording without audio', err);
+      }
+    }
+
+    if (!view.captureStream) {
+      showToast('Video recording isn\u2019t supported on this device');
+      return;
+    }
+
+    const canvasStream = view.captureStream(30);
+    const tracks = [...canvasStream.getVideoTracks()];
+    if (micStream) tracks.push(...micStream.getAudioTracks());
+    const combined = new MediaStream(tracks);
+
+    let mimeType = 'video/webm;codecs=vp9,opus';
+    if (!MediaRecorder.isTypeSupported(mimeType)) mimeType = 'video/webm;codecs=vp8,opus';
+    if (!MediaRecorder.isTypeSupported(mimeType)) mimeType = 'video/webm';
+
+    recordedChunks = [];
+    try {
+      mediaRecorder = new MediaRecorder(combined, { mimeType });
+    } catch (err) {
+      console.error('Could not start recorder', err);
+      showToast('Could not start recording');
+      return;
+    }
+    mediaRecorder.ondataavailable = (e) => {
+      if (e.data && e.data.size > 0) recordedChunks.push(e.data);
+    };
+    mediaRecorder.onstop = onRecordingStop;
+    mediaRecorder.start();
+
+    recordStartTime = Date.now();
+    updateRecTimer();
+    recTimer.classList.add('on');
+    recordTimerInterval = setInterval(updateRecTimer, 500);
+
+    shutter.classList.add('recording');
+    flipBtn.disabled = true;
+    galBtn.disabled = true;
+  }
+
+  function stopRecording() {
+    if (mediaRecorder && mediaRecorder.state === 'recording') {
+      mediaRecorder.stop();
+    }
+  }
+
+  async function onRecordingStop() {
+    clearInterval(recordTimerInterval);
+    recTimer.classList.remove('on');
+    shutter.classList.remove('recording');
+    flipBtn.disabled = false;
+    galBtn.disabled = false;
+
+    const blob = new Blob(recordedChunks, { type: 'video/webm' });
+    recordedChunks = [];
+    if (blob.size === 0) return; // recording was cancelled/too short
+
+    const id = Date.now();
+    const filename = `potato-cam-${id}.webm`;
+    const url = URL.createObjectURL(blob);
+    shots.unshift({ id, url, blob, filename, type: 'video' });
+    autoSave(blob, filename);
+    dbPutPhoto({ id, blob, filename, type: 'video' }).catch((err) => console.warn('Could not persist video', err));
+    showToast('Video saved to Downloads ✓');
+  }
+
+  shutter.onclick = async () => {
+    if (currentMode === 'photo') {
+      await capturePhoto();
+    } else if (!mediaRecorder || mediaRecorder.state !== 'recording') {
+      await startRecording();
+    } else {
+      stopRecording();
+    }
   };
 
   function openGallery(index) {
     gallery.classList.add('open');
     if (shots.length === 0) {
       galImg.style.display = 'none';
+      galVideo.style.display = 'none';
+      galVideo.pause();
       galEmpty.style.display = 'block';
       galPrev.style.display = 'none';
       galNext.style.display = 'none';
@@ -629,8 +782,20 @@ if ('serviceWorker' in navigator) {
   function renderGalImage() {
     const s = shots[galIndex];
     galEmpty.style.display = 'none';
-    galImg.style.display = 'block';
-    galImg.src = s.url;
+
+    if (s.type === 'video') {
+      galImg.style.display = 'none';
+      galImg.src = '';
+      galVideo.style.display = 'block';
+      galVideo.src = s.url;
+    } else {
+      galVideo.pause();
+      galVideo.style.display = 'none';
+      galVideo.src = '';
+      galImg.style.display = 'block';
+      galImg.src = s.url;
+    }
+
     galActions.style.display = 'flex';
     galCount.textContent = `${galIndex + 1} / ${shots.length}`;
 
@@ -650,9 +815,11 @@ if ('serviceWorker' in navigator) {
   galPrev.onclick = goPrev;
   galNext.onclick = goNext;
 
-  // Swipe left/right through photos
+  // Swipe left/right through photos (skip when the touch is on the video
+  // player itself, so scrubbing/tapping its native controls isn't hijacked)
   let touchStartX = null;
   galImgWrap.addEventListener('touchstart', (e) => {
+    if (e.target === galVideo || galVideo.contains(e.target)) { touchStartX = null; return; }
     touchStartX = e.touches[0].clientX;
   }, { passive: true });
   galImgWrap.addEventListener('touchend', (e) => {
@@ -665,7 +832,7 @@ if ('serviceWorker' in navigator) {
   }, { passive: true });
 
   galBtn.onclick = () => openGallery(shots.length ? 0 : -1);
-  galClose.onclick = () => gallery.classList.remove('open');
+  galClose.onclick = () => { galVideo.pause(); gallery.classList.remove('open'); };
 
   galSave.onclick = () => {
     const s = shots[galIndex];
@@ -676,12 +843,14 @@ if ('serviceWorker' in navigator) {
 
   galShare.onclick = async () => {
     const s = shots[galIndex];
-    const filename = s.filename || `potato-cam-${Date.now()}.jpg`;
-    const file = new File([s.blob], filename, { type: 'image/jpeg' });
+    const isVideo = s.type === 'video';
+    const filename = s.filename || `potato-cam-${Date.now()}.${isVideo ? 'webm' : 'jpg'}`;
+    const mimeType = s.blob.type || (isVideo ? 'video/webm' : 'image/jpeg');
+    const file = new File([s.blob], filename, { type: mimeType });
 
     if (navigator.canShare && navigator.canShare({ files: [file] })) {
       try {
-        await navigator.share({ files: [file], title: 'Potato Cam photo' });
+        await navigator.share({ files: [file], title: isVideo ? 'Potato Cam video' : 'Potato Cam photo' });
       } catch (err) {
         if (err && err.name !== 'AbortError') { // AbortError = user just cancelled, not a real failure
           console.warn('share failed', err);
