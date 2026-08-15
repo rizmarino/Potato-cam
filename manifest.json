@@ -5,7 +5,7 @@
   "start_url": "./potato-cam-2.html",
   "scope": "./",
   "display": "standalone",
-  "orientation": "portrait",
+  "orientation": "any",
   "background_color": "#0d0b08",
   "theme_color": "#0d0b08",
   "icons": [
