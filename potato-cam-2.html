@@ -255,8 +255,77 @@ if ('serviceWorker' in navigator) {
   let stream = null;
   let facingMode = 'environment';
   let rafId = null;
-  let shots = []; // {url, blob}
+  let shots = []; // {id, url, blob, filename} — loaded from IndexedDB on startup, kept in sync on capture/delete
   let galIndex = -1;
+
+  // --- Persistent photo storage (IndexedDB) ---
+  // A website can't create its own named folder in Android's shared storage —
+  // that requires native filesystem permissions this app doesn't have. This
+  // gives an equivalent result instead: photos live in the app's own private
+  // database so the in-app gallery always has everything you've shot, across
+  // restarts, independent of whatever's in the Downloads folder.
+  const DB_NAME = 'potato-cam-db';
+  const STORE_NAME = 'photos';
+  let dbPromise = null;
+
+  function getDB() {
+    if (dbPromise) return dbPromise;
+    dbPromise = new Promise((resolve, reject) => {
+      const req = indexedDB.open(DB_NAME, 1);
+      req.onupgradeneeded = () => {
+        const db = req.result;
+        if (!db.objectStoreNames.contains(STORE_NAME)) {
+          db.createObjectStore(STORE_NAME, { keyPath: 'id' });
+        }
+      };
+      req.onsuccess = () => resolve(req.result);
+      req.onerror = () => reject(req.error);
+    });
+    return dbPromise;
+  }
+
+  async function dbPutPhoto(record) {
+    const db = await getDB();
+    return new Promise((resolve, reject) => {
+      const tx = db.transaction(STORE_NAME, 'readwrite');
+      tx.objectStore(STORE_NAME).put(record);
+      tx.oncomplete = () => resolve();
+      tx.onerror = () => reject(tx.error);
+    });
+  }
+
+  async function dbDeletePhoto(id) {
+    const db = await getDB();
+    return new Promise((resolve, reject) => {
+      const tx = db.transaction(STORE_NAME, 'readwrite');
+      tx.objectStore(STORE_NAME).delete(id);
+      tx.oncomplete = () => resolve();
+      tx.onerror = () => reject(tx.error);
+    });
+  }
+
+  async function dbGetAllPhotos() {
+    const db = await getDB();
+    return new Promise((resolve, reject) => {
+      const tx = db.transaction(STORE_NAME, 'readonly');
+      const req = tx.objectStore(STORE_NAME).getAll();
+      req.onsuccess = () => resolve(req.result || []);
+      req.onerror = () => reject(req.error);
+    });
+  }
+
+  async function loadShotsFromDB() {
+    try {
+      const records = await dbGetAllPhotos();
+      records.sort((a, b) => b.id - a.id); // newest first
+      shots = records.map((r) => ({
+        id: r.id, blob: r.blob, filename: r.filename, url: URL.createObjectURL(r.blob)
+      }));
+    } catch (err) {
+      console.warn('Could not load saved photos', err);
+    }
+  }
+  loadShotsFromDB();
 
   potatoSlider.oninput = () => potatoVal.textContent = potatoSlider.value;
   noiseSlider.oninput = () => noiseVal.textContent = noiseSlider.value;
@@ -476,13 +545,14 @@ if ('serviceWorker' in navigator) {
     await reJpegMangle(shotCanvas, 0.45);
 
     const blob = await new Promise(res => shotCanvas.toBlob(res, 'image/jpeg', 0.75));
-    const filename = `potato-cam-${Date.now()}.jpg`;
+    const id = Date.now();
+    const filename = `potato-cam-${id}.jpg`;
     const url = URL.createObjectURL(blob);
-    shots.unshift({ url, blob, filename, saved: true });
+    shots.unshift({ id, url, blob, filename });
     autoSave(blob, filename);
+    dbPutPhoto({ id, blob, filename }).catch((err) => console.warn('Could not persist photo', err));
     savedToast.classList.add('on');
     setTimeout(() => savedToast.classList.remove('on'), 1400);
-    openGallery(0);
   };
 
   function openGallery(index) {
@@ -519,7 +589,9 @@ if ('serviceWorker' in navigator) {
   };
 
   galDel.onclick = () => {
+    const removed = shots[galIndex];
     shots.splice(galIndex, 1);
+    if (removed) dbDeletePhoto(removed.id).catch((err) => console.warn('Could not delete saved photo', err));
     if (shots.length === 0) { openGallery(-1); return; }
     galIndex = Math.min(galIndex, shots.length - 1);
     renderGalImage();
